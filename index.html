@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sean Huynh — Portfolio</title>
+  <meta name="description" content="Sean Huynh designs small, quiet worlds for the screen.">
+  <meta name="theme-color" content="#060a0e">
+  <meta property="og:title" content="Sean Huynh — Portfolio">
+  <meta property="og:description" content="Designing small, quiet worlds for the screen.">
+  <meta property="og:type" content="website">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500&amp;display=swap">
+  <link rel="preload" href="fonts/DefaultLingo-Regular.otf" as="font" type="font/otf" crossorigin>
+  <link rel="stylesheet" href="styles.css">
+
+  <script type="module" src="hero.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <div class="hero" data-hero>
+    <canvas class="hero__sky" aria-hidden="true" data-hero-sky></canvas>
+
+    <header class="site-header">
+      <a class="site-header__brand" href="/" data-hero-brand>Sean's Portfolio</a>
+      <nav aria-label="Primary">
+        <ul class="site-nav" data-hero-links>
+          <li><a href="#work" aria-current="page">Work</a></li>
+          <li><a href="#about">About</a></li>
+          <li><a href="#lab">Lab</a></li>
+          <li><a href="#contact">Contact</a></li>
+        </ul>
+      </nav>
+    </header>
+
+    <main id="main" class="hero__content">
+      <div class="hero__text">
+        <h1 class="hero__title" data-hero-title>Sean Huynh</h1>
+        <p class="hero__tagline">Designing small, quiet worlds for the screen.</p>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

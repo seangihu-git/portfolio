@@ -1,0 +1,189 @@
+/* ==========================================================================
+   Design tokens
+   hero.js reads the --color-* values below, so they're defined only here.
+   ========================================================================== */
+:root {
+  color-scheme: dark;
+
+  --color-bg: #060a0e;
+  --color-text-strong: #d5e9ed;
+  --color-text: #a0b3c2;
+  --color-shadow-deep: #1f2846;
+  --color-shadow: #273d5b;
+  --color-pink: #e6c9d6;
+  --color-lilac: #b9afd8;
+
+  --gradient-sky: linear-gradient(180deg, #05080b 0%, #070c11 40%, #0c131c 75%, #121c29 100%);
+
+  --font-display: 'SS Default Lingo', 'Instrument Sans', system-ui, sans-serif;
+  --font-body: 'Instrument Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  --gutter: clamp(1.5rem, 6vw, 6rem);
+}
+
+@font-face {
+  font-family: 'SS Default Lingo';
+  src: url('fonts/DefaultLingo-Regular.otf') format('opentype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ==========================================================================
+   Base
+   ========================================================================== */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--color-bg);
+}
+
+body {
+  font-family: var(--font-body);
+  color: var(--color-text);
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: var(--color-text-strong);
+}
+
+a:hover {
+  color: var(--color-text);
+}
+
+a:focus-visible,
+button:focus-visible {
+  outline: 2px solid var(--color-text-strong);
+  outline-offset: 4px;
+}
+
+.skip-link {
+  position: absolute;
+  top: 0.75rem;
+  left: 0.75rem;
+  z-index: 10;
+  padding: 0.5rem 0.75rem;
+  background: var(--color-text-strong);
+  color: var(--color-bg);
+  font-size: 0.875rem;
+  text-decoration: none;
+  transform: translateY(-200%);
+}
+
+.skip-link:focus-visible {
+  transform: none;
+}
+
+/* Stylistic alternates applied per letter by hero.js */
+.alt-salt { font-feature-settings: 'salt' 1; }
+.alt-ss02 { font-feature-settings: 'ss02' 1; }
+.alt-both { font-feature-settings: 'salt' 1, 'ss02' 1; }
+
+/* ==========================================================================
+   Hero
+   ========================================================================== */
+.hero {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  min-height: 100dvh;
+  overflow: hidden;
+  background: var(--gradient-sky);
+  touch-action: pan-y;
+}
+
+.hero__sky {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.site-header {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 2rem;
+  padding: clamp(1.5rem, 4vw, 2.75rem) var(--gutter);
+}
+
+.site-header__brand {
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  color: var(--color-text-strong);
+  text-decoration: none;
+}
+
+.site-nav {
+  display: flex;
+  gap: clamp(1.25rem, 3vw, 2.25rem);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.4;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.site-nav a {
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.site-nav a[aria-current='page'],
+.site-nav a:hover {
+  color: var(--color-text-strong);
+}
+
+.hero__content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex: 1;
+  align-items: flex-end;
+  padding: 2rem var(--gutter) clamp(3.5rem, 12vh, 8rem) clamp(2.5rem, 9vw, 9rem);
+}
+
+.hero__text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  max-width: 40rem;
+}
+
+.hero__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: clamp(2.5rem, 7vw, 4.5rem);
+  line-height: 1.05;
+  letter-spacing: 0;
+  color: var(--color-text-strong);
+  text-wrap: balance;
+}
+
+.hero__tagline {
+  max-width: 34rem;
+  margin: 0;
+  font-size: 1.25rem;
+  line-height: 1.6;
+  color: var(--color-text);
+  text-wrap: pretty;
+}
