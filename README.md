@@ -1,4 +1,4 @@
-# Sean Huynh — Portfolio
+# Sean — Portfolio
 
 A static portfolio landing page with an animated halftone night-sky hero.
 
