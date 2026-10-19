@@ -43,6 +43,18 @@ const TONE_BUCKETS = [
   ['#1F2846', 0.6], ['#273D5B', 0.5],
 ];
 
+// The same buckets packed as RGBA pixels (little-endian: 0xAABBGGRR) for writing straight into ImageData.
+const BUCKET_PIXELS = TONE_BUCKETS.map((entry) => {
+  if (!entry) return 0;
+  const [hex, alpha] = entry, rgb = parseInt(hex.slice(1), 16);
+  return ((Math.round(alpha * 255) << 24) | ((rgb & 0xff) << 16) | (rgb & 0xff00) | (rgb >> 16)) >>> 0;
+});
+
+const PHYSICS_STEP = 1 / 60; // s; the pointer springs were tuned per 60 Hz frame
+const MAX_PHYSICS_STEPS = 4; // catch-up limit after a slow frame
+const ROW_PHASES = 3; // the cloud layer is refreshed one third of its rows per frame
+const FIELD_PHASES = 8; // the cloud density field is recomputed one eighth of its rows per frame
+
 // 4×4 ordered-dither thresholds
 const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map((v) => (v + 0.5) / 16);
 
@@ -303,9 +315,15 @@ function initSky(dom) {
     const links = [[0,1],[1,2],[1,3],[3,4],[3,5]].map(([a, b]) => [cStart + a, cStart + b]);
     state.consFixed = false;
     const B = TONE_BUCKETS.map(() => new Float32Array(N * 3)), BN = new Int32Array(TONE_BUCKETS.length);
+    // Cloud dots are rasterised into this pixel buffer (one CSS px per pixel) and composited in a single
+    // drawImage, which is far cheaper than tens of thousands of fillRect calls per frame.
+    const layer = state.layer || document.createElement('canvas');
+    layer.width = w; layer.height = h;
+    const layerCtx = layer.getContext('2d'), layerImage = layerCtx.createImageData(w, h);
+    Object.assign(state, { layer, layerCtx, layerImage, layerPixels: new Uint32Array(layerImage.data.buffer) });
     Object.assign(state, { w, h, ctx, cell, cols, rows, N, FS, fc, fr, mask, edgeIdx, edgeD, edgeAmp, BAND, stars, links, B, BN, puffs: makeClouds(w, h), hueF: new Float32Array(fc * fr), ero: new Float32Array(fc * fr), wx: new Float32Array(fc * fr), wy: new Float32Array(fc * fr),
       field: new Float32Array(fc * fr), edgeCur: new Float32Array(N), ox: new Float32Array(N), oy: new Float32Array(N), vx: new Float32Array(N), vy: new Float32Array(N),
-      shoot: null, nextShoot: (state.t || 0) + 3 + rng() * 3, fieldReady: false });
+      shoot: null, nextShoot: (state.t || 0) + 3 + rng() * 3, fieldReady: false, needsFullRender: true, springBox: null });
   };
 
   // painter's pass: puffs back to front, lit from upper left, edges eroded by slowly evolving noise for a fluffy-but-wispy rim
@@ -356,7 +374,7 @@ function initSky(dom) {
 
   const sampleField = (x, y) => { const { field, fc, fr, FS } = state; const i = Math.max(0, Math.min(fc - 1, Math.round(x / FS))), j = Math.max(0, Math.min(fr - 1, Math.round(y / FS))); return field[j * fc + i]; };
 
-  const draw = (t, frozen) => {
+  const draw = (t, frozen, dt = PHYSICS_STEP) => {
     const { hueF, w, h, ctx, cell, cols, rows, mask, field, fc, FS, ox, oy, vx, vy, B, BN, stars, ptr, edgeIdx, edgeD, edgeAmp, edgeCur, BAND } = state;
     const theta = frozen ? 0 : TAU * ((t % CYCLE_SECONDS) / CYCLE_SECONDS);
     if (!state.fieldReady) { updateField(theta, 0, 1); state.fieldReady = true; }
@@ -367,10 +385,15 @@ function initSky(dom) {
           let ok = true; for (let q = 0; q < 8 && ok; q++) { const b = q / 8 * TAU; if (sampleField(x + Math.cos(b) * 14, y + Math.sin(b) * 14) > .04) ok = false; }
           if (ok && sampleField(x, y) < .04) { best = [x, y]; break; } }
         if (best) { s.hx = best[0]; s.hy = best[1]; } } }
-    else if (!frozen) updateField(theta, state.frame % 4, 4);
+    else if (!frozen) updateField(theta, state.frame % FIELD_PHASES, FIELD_PHASES);
     const repel = !reduced && CONFIG.repel && ptr.on;
+    // Pointer physics run in fixed 60 Hz steps, so the push and spring-back feel the same at any frame rate.
+    state.physicsTime = Math.min(MAX_PHYSICS_STEPS * PHYSICS_STEP, (state.physicsTime || 0) + dt);
+    const steps = Math.floor(state.physicsTime / PHYSICS_STEP + 1e-6);
+    state.physicsTime -= steps * PHYSICS_STEP;
     const follow = Math.max(.03, Math.min(1, CONFIG.repelFollow));
-    if (ptr.on) { if (!ptr.init) { ptr.cx = ptr.x; ptr.cy = ptr.y; ptr.init = true; } ptr.cx += (ptr.x - ptr.cx) * follow; ptr.cy += (ptr.y - ptr.cy) * follow; }
+    if (ptr.on) { if (!ptr.init) { ptr.cx = ptr.x; ptr.cy = ptr.y; ptr.init = true; }
+      for (let s = 0; s < steps; s++) { ptr.cx += (ptr.x - ptr.cx) * follow; ptr.cy += (ptr.y - ptr.cy) * follow; } }
     const R = Math.max(10, CONFIG.repelRadius), STR = Math.max(0, CONFIG.repelStrength) * R;
     const K = Math.max(.01, Math.min(.25, CONFIG.repelReturn)), D = Math.max(.3, 1 - 1.2 * Math.sqrt(K));
     const cx = ptr.cx, cy = ptr.cy, hc = cell / 2, R2 = R * R;
@@ -378,7 +401,7 @@ function initSky(dom) {
       let tx = 0, ty = 0;
       if (repel) { const dx = hx - cx, dy = hy - cy, d2 = dx * dx + dy * dy;
         if (d2 < R2) { const dist = Math.sqrt(d2) || .001, f = smoothstep(1 - dist / R), p = f * STR; tx = dx / dist * p; ty = dy / dist * p; } }
-      o.vx = (o.vx + (tx - o.ox) * K) * D; o.vy = (o.vy + (ty - o.oy) * K) * D; o.ox += o.vx; o.oy += o.vy;
+      for (let s = 0; s < steps; s++) { o.vx = (o.vx + (tx - o.ox) * K) * D; o.vy = (o.vy + (ty - o.oy) * K) * D; o.ox += o.vx; o.oy += o.vy; }
     };
     const tmp = { ox: 0, oy: 0, vx: 0, vy: 0 };
     const sT = Math.sin(theta), cT = Math.cos(theta);
@@ -386,7 +409,7 @@ function initSky(dom) {
       const idx = edgeIdx[k], x = (idx % cols) * cell, y = ((idx / cols) | 0) * cell;
       edgeCur[idx] = edgeD[k] - (valueNoise3(x / 120 + .3 * sT, y / 120, .3 * cT + 7) - .5) * 2.2 * edgeAmp[k];
     }
-    ctx.clearRect(0, 0, w, h); BN.fill(0);
+    ctx.clearRect(0, 0, w, h);
     const pad = R + 12;
     const i0 = repel ? Math.max(0, Math.floor((cx - pad) / cell)) : 0, i1 = repel ? Math.min(cols, Math.ceil((cx + pad) / cell)) : 0;
     const j0 = repel ? Math.max(0, Math.floor((cy - pad) / cell)) : 0, j1 = repel ? Math.min(rows, Math.ceil((cy + pad) / cell)) : 0;
@@ -481,20 +504,26 @@ function initSky(dom) {
         }
       }
     }
-    // clouds: posterised into flat tone bands with dithered borders; parted around text
-    for (let j = 0; j < rows; j++) {
+    // clouds: posterised into flat tone bands with dithered borders; parted around text.
+    // The clouds drift slowly, so each frame re-renders only every ROW_PHASES-th row of cells, plus a
+    // box around the pointer (and around any dots still springing back) so the repel stays smooth.
+    const renderRow = (j, iFrom, iTo, skipFrom, skipTo, inBox) => {
       const fyy = (j * cell + hc) / FS, fj = Math.min(state.fr - 2, fyy | 0), ty = fyy - fj, ny = j / rows;
       const bgRow = .05 + .3 * Math.pow(ny, 1.5), bgS = Math.max(1, Math.round(cell * .3)), bgMix = .45 * smoothstep((ny - .3) / .7);
-      for (let i = 0; i < cols; i++) {
+      for (let i = iFrom; i < iTo; i++) {
+        if (i === skipFrom) { i = skipTo - 1; continue; }
         const idx = j * cols + i, m = mask[idx], bay = BAYER[(j & 3) * 4 + (i & 3)];
         const bgv = bgRow * (m === 1 ? .55 : 1);
         if (m === 1) { if (bay < bgv) { const s = bgS, bk = hash3(i, j, 77) < bgMix ? 12 : 11, n = BN[bk]++ * 3, arr = B[bk]; arr[n] = i * cell + ((cell - s) >> 1); arr[n + 1] = j * cell + ((cell - s) >> 1); arr[n + 2] = s; } continue; }
-        const near = i >= i0 && i < i1 && j >= j0 && j < j1;
-        if (near || ox[idx] !== 0 || oy[idx] !== 0) {
-          tmp.ox = ox[idx]; tmp.oy = oy[idx]; tmp.vx = vx[idx]; tmp.vy = vy[idx];
-          spring(i * cell + hc, j * cell + hc, tmp);
-          if (!near && Math.abs(tmp.ox) + Math.abs(tmp.oy) + Math.abs(tmp.vx) + Math.abs(tmp.vy) < .02) tmp.ox = tmp.oy = tmp.vx = tmp.vy = 0;
-          ox[idx] = tmp.ox; oy[idx] = tmp.oy; vx[idx] = tmp.vx; vy[idx] = tmp.vy;
+        if (inBox) {
+          const near = i >= i0 && i < i1 && j >= j0 && j < j1;
+          if (near || ox[idx] !== 0 || oy[idx] !== 0) {
+            tmp.ox = ox[idx]; tmp.oy = oy[idx]; tmp.vx = vx[idx]; tmp.vy = vy[idx];
+            spring(i * cell + hc, j * cell + hc, tmp);
+            if (!near && Math.abs(tmp.ox) + Math.abs(tmp.oy) + Math.abs(tmp.vx) + Math.abs(tmp.vy) < .02) tmp.ox = tmp.oy = tmp.vx = tmp.vy = 0;
+            ox[idx] = tmp.ox; oy[idx] = tmp.oy; vx[idx] = tmp.vx; vy[idx] = tmp.vy;
+            if (tmp.ox || tmp.oy || tmp.vx || tmp.vy) { if (i < nb[0]) nb[0] = i; if (i >= nb[1]) nb[1] = i + 1; if (j < nb[2]) nb[2] = j; if (j >= nb[3]) nb[3] = j + 1; }
+          }
         }
         const fxx = (i * cell + hc) / FS, fi = Math.min(fc - 2, fxx | 0), tx = fxx - fi, o = fj * fc + fi;
         let v = (field[o] * (1 - tx) + field[o + 1] * tx) * (1 - ty) + (field[o + fc] * (1 - tx) + field[o + fc + 1] * tx) * ty;
@@ -511,9 +540,45 @@ function initSky(dom) {
         const bk = warm ? lv + 5 : lv, n = BN[bk]++ * 3, arr = B[bk];
         arr[n] = Math.round(i * cell + hc - s / 2 + ox[idx]); arr[n + 1] = Math.round(j * cell + hc - s / 2 + oy[idx]); arr[n + 2] = s;
       }
+    };
+    const full = frozen || state.needsFullRender; state.needsFullRender = false;
+    const { layer, layerCtx, layerImage, layerPixels } = state;
+    // box (in cells) that must be redrawn this frame: around the pointer plus last frame's springing dots,
+    // padded so a displaced dot never lands outside the cleared area
+    const pb = state.springBox, margin = Math.ceil((STR * 1.5) / cell) + 2;
+    let bi0 = repel ? i0 : cols, bi1 = repel ? i1 : 0, bj0 = repel ? j0 : rows, bj1 = repel ? j1 : 0;
+    if (pb) { bi0 = Math.min(bi0, pb[0]); bi1 = Math.max(bi1, pb[1]); bj0 = Math.min(bj0, pb[2]); bj1 = Math.max(bj1, pb[3]); }
+    const hasBox = bi1 > bi0 && bj1 > bj0;
+    if (hasBox) { bi0 = Math.max(0, bi0 - margin); bi1 = Math.min(cols, bi1 + margin); bj0 = Math.max(0, bj0 - margin); bj1 = Math.min(rows, bj1 + margin); }
+    const nb = [cols, 0, rows, 0];
+    BN.fill(0);
+    if (full) layerPixels.fill(0);
+    const phase = state.frame % ROW_PHASES;
+    for (let j = full ? 0 : phase; j < rows; j += full ? 1 : ROW_PHASES) {
+      if (!full) layerPixels.fill(0, Math.min(h, j * cell) * w, Math.min(h, (j + 1) * cell) * w);
+      const inRows = hasBox && j >= bj0 && j < bj1;
+      renderRow(j, 0, cols, inRows ? bi0 : -1, inRows ? bi1 : -1, false);
     }
-    for (let k = 1; k < TONE_BUCKETS.length; k++) { if (!BN[k]) continue; ctx.fillStyle = TONE_BUCKETS[k][0]; ctx.globalAlpha = TONE_BUCKETS[k][1]; const arr = B[k]; for (let n = 0, e = BN[k] * 3; n < e; n += 3) ctx.fillRect(arr[n], arr[n + 1], arr[n + 2], arr[n + 2]); }
-    ctx.globalAlpha = 1; state.frame++;
+    if (hasBox) {
+      const px0 = Math.min(w, bi0 * cell), px1 = Math.min(w, bi1 * cell);
+      for (let y = Math.min(h, bj0 * cell), y1 = Math.min(h, bj1 * cell); y < y1; y++) layerPixels.fill(0, y * w + px0, y * w + px1);
+      for (let j = bj0; j < bj1; j++) renderRow(j, bi0, bi1, -1, -1, true);
+    }
+    state.springBox = nb[1] > nb[0] ? nb : null;
+    // rasterise the dots, bucket by bucket, into the cloud layer and composite it over the stars
+    for (let k = 1; k < TONE_BUCKETS.length; k++) {
+      if (!BN[k]) continue;
+      const color = BUCKET_PIXELS[k], arr = B[k];
+      for (let n = 0, e = BN[k] * 3; n < e; n += 3) {
+        const x0 = Math.max(0, arr[n]), x1 = Math.min(w, arr[n] + arr[n + 2]), y1 = Math.min(h, arr[n + 1] + arr[n + 2]);
+        if (x1 <= x0) continue;
+        for (let y = Math.max(0, arr[n + 1]); y < y1; y++) layerPixels.fill(color, y * w + x0, y * w + x1);
+      }
+    }
+    layerCtx.putImageData(layerImage, 0, 0);
+    ctx.globalAlpha = 1; ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(layer, 0, 0, w, h);
+    state.frame++;
   };
 
   /* ---- Animation loop: runs only while the hero is visible and motion is allowed ---- */
@@ -523,10 +588,11 @@ function initSky(dom) {
   let lastNow = 0;
 
   const loop = (now) => {
-    state.t += Math.min(MAX_FRAME_STEP, (now - lastNow) / 1000);
+    const dt = Math.min(MAX_FRAME_STEP, (now - lastNow) / 1000);
+    state.t += dt;
     lastNow = now;
     try {
-      draw(state.t, !CONFIG.ambientMotion);
+      draw(state.t, !CONFIG.ambientMotion, dt);
     } catch (err) {
       if (!state.loggedError) {
         state.loggedError = true;
@@ -551,7 +617,9 @@ function initSky(dom) {
   const rebuild = () => {
     try {
       build();
+      // paint right away so there's no blank canvas while waiting for the next animation frame
       if (reduced) draw(0, true); // a single still frame
+      else draw(state.t, !CONFIG.ambientMotion, 0);
     } catch (err) {
       console.error('hero sky build:', err);
     }
