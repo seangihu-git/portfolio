@@ -162,10 +162,9 @@ button:focus-visible {
 }
 
 .hero__text {
-  display: flex;
-  flex-direction: column;
-  gap: 0.85rem;
+  display: block;
   max-width: 40rem;
+  padding-block: 80px;
 }
 
 .hero__title {

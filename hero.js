@@ -244,7 +244,7 @@ function makeClouds(w, h) {
     }
   };
   for (const [tx, ty, len, amp, rad, curl, cf, hook] of [
-    [.66,.47,1,.75,.02,.22,2,.5],[.63,.6,.5,.7,.022,-.18,2.5,-.6],[.62,.73,.9,.65,.018,.25,3,.7],[.57,.86,.75,.55,.016,-.2,2,-.5],[.84,.95,.6,.5,.015,.15,2,.6],
+    [.66,.47,.9,.6,.009,.08,1.5,.35],[.655,.50,1.1,.55,.008,-.06,1.5,.3],[.65,.53,1.25,.5,.0075,.07,2,.4],[.645,.56,1,.45,.007,-.05,1.5,.25],[.64,.59,.8,.45,.0075,.06,2,.3],[.635,.62,.6,.4,.007,-.05,1.5,.2],[.62,.645,1.3,.75,.012,.07,1.5,.35],[.615,.665,1.5,.7,.011,-.06,1.5,.3],[.61,.685,1.3,.65,.01,.06,2,.3],[.605,.705,1,.55,.009,-.05,1.5,.25],[.6,.63,.8,.5,.008,.05,2,.4],[.57,.86,.75,.55,.016,-.2,2,-.5],[.84,.95,.6,.5,.015,.15,2,.6],
     [.36,.05,.4,.6,.012,.22,2,.8],[.27,.15,.45,.55,.012,-.22,2.5,-.7],[.19,.40,.55,.55,.013,.25,2,.6],[.08,.42,.35,.5,.012,-.2,1.5,-.5]]) {
     trail(tx * w, ty * h, len, amp, rad * W, curl, cf, hook, rand() * TAU, (.004 + .004 * rand()) * w, rand() * TAU, { lcx: (tx + .05) * w, lcy: (ty - .08) * h, lcr: 1 / (.22 * w), lw: .15, bk: .4 }, 0);
   }
@@ -285,6 +285,7 @@ function initSky(dom) {
   const build = () => {
     const root = dom.root, cv = dom.canvas; if (!root || !cv) return;
     const w = root.clientWidth, h = root.clientHeight, dpr = Math.min(window.devicePixelRatio || 1, 2);
+    if (!w || !h) return; // not laid out yet; the ResizeObserver rebuilds once it has a size
     cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
     const ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     const cell = Math.max(3, Math.min(10, Math.round(CONFIG.cellSize)));
@@ -375,6 +376,7 @@ function initSky(dom) {
   const sampleField = (x, y) => { const { field, fc, fr, FS } = state; const i = Math.max(0, Math.min(fc - 1, Math.round(x / FS))), j = Math.max(0, Math.min(fr - 1, Math.round(y / FS))); return field[j * fc + i]; };
 
   const draw = (t, frozen, dt = PHYSICS_STEP) => {
+    if (!state.puffs) return; // nothing built yet
     const { hueF, w, h, ctx, cell, cols, rows, mask, field, fc, FS, ox, oy, vx, vy, B, BN, stars, ptr, edgeIdx, edgeD, edgeAmp, edgeCur, BAND } = state;
     const theta = frozen ? 0 : TAU * ((t % CYCLE_SECONDS) / CYCLE_SECONDS);
     if (!state.fieldReady) { updateField(theta, 0, 1); state.fieldReady = true; }
